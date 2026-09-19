@@ -8,6 +8,8 @@ whichever agent you picked in the menu. This adds the three things that binding
 does not do: a scratchpad you can drop over any workspace, a launcher that
 focuses the session you already have open, and a project picker.
 
+![Picking a project and opening Claude Code in it](docs/demo.gif)
+
 Everything routes through Omarchy's own `omarchy-agent`, so it respects the
 agent you selected in **Setup → Default Agent** and the flags Omarchy launches
 it with. Nothing here talks to `claude` directly.
