@@ -1,0 +1,17 @@
+#!/bin/bash
+
+# Open the default Omarchy agent (Claude Code) in a terminal window rooted at a
+# directory. Usage: claude-in [directory]
+#
+# uwsm-app hands the launch to wayland-wm-app-daemon, so the new terminal does
+# not inherit this process's working directory. The shell inside the terminal
+# does the cd instead. --inline makes omarchy-agent exec the agent right there
+# rather than opening a second terminal, so the flags stay Omarchy's.
+
+set -euo pipefail
+
+dir=${1:-${CLAUDE_HOME_DIR:-$HOME/Projects}}
+[[ -d $dir ]] || dir=$HOME
+
+exec omarchy-launch-tui --app-id="${CLAUDE_APP_ID:-org.omarchy.agent}" \
+  bash -lc "cd $(printf '%q' "$dir") && exec omarchy-agent --inline"

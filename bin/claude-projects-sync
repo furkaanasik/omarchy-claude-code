@@ -1,0 +1,44 @@
+#!/bin/bash
+
+# Regenerate the project rows in the Omarchy menu's Claude Code submenu.
+#
+# The Quickshell menu only runs its own built-in providers (apps, fonts,
+# power-profiles), so a custom list has to be written into the user extension as
+# plain rows. Only the block between the markers is rewritten; the rest of the
+# file is left alone. The menu hot-reloads on save.
+
+set -euo pipefail
+
+menu="$HOME/.config/omarchy/extensions/omarchy-menu.jsonc"
+begin="  // >>> claude-projects"
+end="  // <<< claude-projects"
+
+if ! grep -qxF "$begin" "$menu" || ! grep -qxF "$end" "$menu"; then
+  echo "Markers missing in $menu" >&2
+  exit 1
+fi
+
+json_escape() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+
+rows=""
+count=0
+while IFS= read -r dir; do
+  [[ -d $dir ]] || continue
+  name=${dir##*/}
+  slug=$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]\+/-/g; s/^-//; s/-$//')
+  [[ -n $slug ]] || continue
+  rows+=$(printf '  "claude.p.%s": {"icon":"\U000f06c4","label":"%s","description":"%s","action":"claude-in %s"},\n' \
+    "$slug" "$(json_escape "$name")" "$(json_escape "${dir/#$HOME/\~}")" "$(json_escape "$(printf '%q' "$dir")")")
+  rows+=$'\n'
+  count=$((count + 1))
+done < <(claude-projects-list)
+
+tmp=$(mktemp)
+awk -v begin="$begin" -v end="$end" -v rows="$rows" '
+  $0 == begin { print; if (rows != "") printf "%s", rows; skip = 1; next }
+  $0 == end { skip = 0 }
+  !skip { print }
+' "$menu" >"$tmp"
+mv "$tmp" "$menu"
+
+omarchy-notification-send -u low "Claude Code" "$count project(s) in the menu" 2>/dev/null || true

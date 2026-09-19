@@ -1,0 +1,20 @@
+#!/bin/bash
+
+# Toggle a Claude Code window on its own special workspace, so it drops over
+# whatever is on screen without disturbing the layout underneath.
+#
+# The window rule in ~/.config/hypr/hyprland.lua parks this app-id on
+# special:claude, so a fresh window lands there on its own.
+#
+# hyprctl dispatch takes Lua in Hyprland 0.56; the old
+# `dispatch togglespecialworkspace claude` spelling is a syntax error now.
+
+set -euo pipefail
+
+app_id=org.omarchy.claudepad
+
+if ! hyprctl clients -j | jq -e --arg c "$app_id" 'any(.[]; .class == $c)' >/dev/null; then
+  CLAUDE_APP_ID=$app_id setsid claude-in "${1:-}" >/dev/null 2>&1 &
+fi
+
+exec hyprctl dispatch 'hl.dsp.workspace.toggle_special("claude")'

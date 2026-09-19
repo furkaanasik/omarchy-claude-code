@@ -1,0 +1,33 @@
+#!/bin/bash
+
+# Print project directories, most recently touched first, one per line.
+#
+# The folders to scan come from ~/.config/omarchy/claude-projects, which the
+# picker's settings row edits. Shared by claude-pick and claude-projects-sync,
+# so the popup and the Omarchy menu always agree.
+
+set -euo pipefail
+
+config="$HOME/.config/omarchy/claude-projects"
+
+if [[ ! -f $config ]]; then
+  mkdir -p "$(dirname "$config")"
+  cat >"$config" <<'DEFAULTS'
+# Folders scanned for Claude Code projects.
+# One folder per line. Every subdirectory inside it counts as a project.
+# Lines starting with # are ignored.
+
+~/Projects
+~/Work
+DEFAULTS
+fi
+
+while IFS= read -r line; do
+  line=${line%%#*}
+  line=${line#"${line%%[![:space:]]*}"}
+  line=${line%"${line##*[![:space:]]}"}
+  [[ -n $line ]] || continue
+  root=${line/#\~\//$HOME/}
+  [[ -d $root ]] || continue
+  find "$root" -mindepth 1 -maxdepth 1 -type d -not -name '.*' -printf '%T@\t%p\n'
+done <"$config" | sort -rn | cut -f2-

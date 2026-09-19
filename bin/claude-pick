@@ -1,0 +1,105 @@
+#!/bin/bash
+
+# Pick a project and open Claude Code in it.
+#
+#   (no args)         open the picker as a centered floating popup
+#   --inline          run the picker itself, inside that popup
+#   --preview <row>   render one fzf preview pane
+#
+# On selection the popup does NOT launch a second window: it untiles itself and
+# execs the agent in place. Launching again from inside a window that uwsm-app
+# had just launched is what was failing -- the nested request timed out writing
+# to /run/user/1000/uwsm-app-daemon-in and nothing opened.
+
+set -euo pipefail
+
+config="$HOME/.config/omarchy/claude-projects"
+settings_row='⚙  project folders…'
+app_id=org.omarchy.agent.pick
+
+case "${1:-}" in
+"")
+  exec omarchy-launch-tui --app-id="$app_id" bash -lc "exec claude-pick --inline"
+  ;;
+--preview)
+  row=${2:-}
+  if [[ $row == "$settings_row" ]]; then
+    echo "$config"
+    echo
+    cat "$config" 2>/dev/null
+  else
+    dir=${row/#\~\//$HOME/}
+    git -C "$dir" log --oneline -12 2>/dev/null || ls -1 "$dir" 2>/dev/null
+  fi
+  exit 0
+  ;;
+--inline) ;;
+*)
+  echo "Usage: claude-pick [--inline|--preview <row>]" >&2
+  exit 1
+  ;;
+esac
+
+# This window's Hyprland address: the compositor knows the terminal by the pid of
+# the terminal process, which is one of our ancestors.
+window_address() {
+  local pids=() p=$$ list address attempt
+  while [[ $p =~ ^[0-9]+$ ]] && ((p > 1)); do
+    pids+=("$p")
+    p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')
+  done
+  list=$(printf '%s\n' "${pids[@]}" | paste -sd, -)
+
+  # Hyprland can still be mapping the window on a very fast pick, and an empty
+  # address would silently leave the session in the popup frame.
+  for attempt in 1 2 3 4 5; do
+    address=$(hyprctl clients -j | jq -r --argjson pids "[$list]" \
+      'first(.[] | select(.pid as $p | $pids | index($p)) | .address) // empty')
+    [[ -n $address ]] && { printf '%s' "$address"; return 0; }
+    sleep 0.2
+  done
+}
+
+# Seed the config on first run, so the settings row has something to open.
+claude-projects-list >/dev/null
+
+while true; do
+  mapfile -t answer < <(
+    { claude-projects-list | sed "s|^$HOME/|~/|"; printf '%s\n' "$settings_row"; } | fzf \
+      --layout=reverse \
+      --cycle \
+      --info=inline \
+      --prompt='project > ' \
+      --header='enter opens Claude Code · ctrl-e edits folders · esc cancels' \
+      --expect=ctrl-e \
+      --preview='claude-pick --preview {}' \
+      --preview-window=right,45%
+  ) || exit 0
+
+  key=${answer[0]:-}
+  selection=${answer[1]:-}
+
+  if [[ $key == "ctrl-e" || $selection == "$settings_row" ]]; then
+    # EDITOR is "omarchy-launch-editor --inline" here: two words, so it is
+    # deliberately left unquoted.
+    ${EDITOR:-nvim} "$config"
+    continue
+  fi
+
+  [[ -n $selection ]] || exit 0
+  dir=${selection/#\~\//$HOME/}
+  [[ -d $dir ]] || exit 1
+
+  # Drop the popup frame so the session gets an ordinary tiled window.
+  address=$(window_address)
+  if [[ -n $address ]]; then
+    floating=$(hyprctl clients -j | jq -r --arg a "$address" \
+      'first(.[] | select(.address == $a) | .floating) // false')
+    if [[ $floating == "true" ]]; then
+      hyprctl dispatch "hl.dsp.window.float({ window = \"address:$address\", action = \"toggle\" })" >/dev/null
+    fi
+  fi
+
+  cd "$dir"
+  exec omarchy-agent --inline
+done
